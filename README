@@ -16,11 +16,14 @@ Simple package for diagonalizing a transmon or a transmon–resonator system and
 
 ```
 project-root/
-├── spectra_computation/   ← Rust library (Python interface via maturin)
+├── spectra_computation/   
 │   ├── src/
 │   ├── Cargo.toml
 │   └── pyproject.toml
-└── transmon_tools.py
+├── spectra_computation/   
+│   └── __init__.py
+│   └── transmon_tools.py
+└── pyproject.toml
 ```
 
 ## Installation
@@ -53,13 +56,6 @@ maturin develop
 ```bash
 maturin build
 pip install ./target/wheels/<nombre_del_wheel>.whl
-```
-
-### 4. Run the notebook
-
-```bash
-cd ../notebooks
-jupyter notebook
 ```
 
 ## Development
