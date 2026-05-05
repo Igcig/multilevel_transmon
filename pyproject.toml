@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transmon-tools"
+version = "0.1.0"
+description = "Transmon Hamiltonian and spectra computation tools"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "qutip",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["transmon_tools*"]

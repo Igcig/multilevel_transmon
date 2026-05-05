@@ -1,0 +1,67 @@
+# Transmon-tools
+
+Simple package for diagonalizing a transmon or a transmon–resonator system and for calculating transition matrix elements for:
+
+- the qubit transition between the ground and excited state with n photons in the resonator
+- the qubit transition between the ground and second excited state
+- the qubit transition between the first and second excited states
+
+## Requirements
+
+- [Rust toolchain](https://rustup.rs)
+- Python 3.x+
+- `maturin`: `pip install maturin`
+
+## Project Structure
+
+```
+project-root/
+├── spectra_computation/   ← Rust library (Python interface via maturin)
+│   ├── src/
+│   ├── Cargo.toml
+│   └── pyproject.toml
+└── transmon_tools.py
+```
+
+## Installation
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/tu-usuario/tu-repo.git
+cd tu-repo
+```
+
+### 2. Install the Python package and dependencies
+```bash
+pip install -e .
+```
+
+### 3. Build the Rust extension
+
+From the project root folder:
+
+```bash
+cd spectra_computation
+```
+
+**With a virtual environment (recommended):**
+```bash
+maturin develop
+```
+
+**Without a virtual environment:**
+```bash
+maturin build
+pip install ./target/wheels/<nombre_del_wheel>.whl
+```
+
+### 4. Run the notebook
+
+```bash
+cd ../notebooks
+jupyter notebook
+```
+
+## Development
+
+To rebuild after changes to the Rust code, re-run `maturin develop` from the `spectra_computation/` folder.

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.ipynb
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Rust
+spectra_calculation/.cargo/
+spectra_calculation/target-linux/
+spectra_calculation/target-windows/
+spectra_calculation/Cargo.lock
+
+# Extensiones compiladas Python-Rust
+*.so
+*.pyd
+*.dll
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store

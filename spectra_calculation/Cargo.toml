@@ -1,0 +1,18 @@
+[package]
+name = "spectra_calculation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py38", "num-complex"] }
+physical_constants = "0.5.0"
+ndarray = "0.16"
+numpy = "0.24"
+num-complex = "0.4"
+rayon = "1.10"
+itertools = "0.14"
+num-traits = "0.2"
+
+[lib]
+name = "spectra_calculation"
+crate-type = ["cdylib"]
