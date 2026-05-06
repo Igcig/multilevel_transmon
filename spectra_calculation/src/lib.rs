@@ -1,3 +1,22 @@
+//! Spectra calculation library for transmon-resonator systems.
+//!
+//! This module provides high-performance computation of microwave transmission
+//! spectra for a transmon qubit coupled to a microwave resonator. The spectra
+//! are computed by summing Lorentzian contributions from all pairs of eigenstates,
+//! weighted by transition matrix elements.
+//!
+//! Three types of transitions are supported:
+//! - **Single-photon (01)**: transitions between the ground and first excited manifold.
+//! - **Two-photon (2ph)**: transitions involving absorption/emission of two photons.
+//! - **Sideband (12)**: transitions between the first and second excited manifold.
+//!
+//! The Python-facing functions are:
+//! - [`calculate_spectra`]: spectrum for a single set of eigenstates.
+//! - [`calculate_spectra_2D`]: spectrum swept over a parameter (e.g. EJ).
+//! - [`calculate_multiphoton_spectra`]: 1-, 2-, 3-, and 4-photon spectra.
+//!
+//! Parallelism over frequency points is handled by Rayon.
+
 use std::f64::consts::PI;
 use std::ops::Mul;
 use ndarray::ArrayView1;
@@ -17,6 +36,38 @@ use num_complex::Complex;
 use rayon::prelude::*;
 use itertools::Itertools;
 
+// =============================================================================
+// Python-facing functions
+// =============================================================================
+
+/// Compute transmission spectra swept over a parameter axis (e.g. Josephson energy EJ).
+///
+/// This is the batched version of [`calculate_spectra`]. It iterates over the
+/// last axis of the input arrays in parallel using Rayon, returning 2D arrays
+/// of shape `(num_ej, num_f)`.
+///
+/// # Arguments
+/// * `A` - Number of Fock states of the resonator.
+/// * `N` - Number of transmon levels kept in the simulation.
+/// * `peaks_01` - Number of single-photon peaks included in the selection matrix.
+/// * `peaks_2ph` - Number of two-photon peaks included in the selection matrix.
+/// * `peaks_12` - Number of sideband peaks included in the selection matrix.
+/// * `w` - Lorentzian linewidth (FWHM, same units as `f`).
+/// * `f` - Frequency axis to evaluate the spectrum on.
+/// * `even_state_population` - Thermal population of each even-parity eigenstate.
+/// * `odd_state_population` - Thermal population of each odd-parity eigenstate.
+/// * `even_energies` - Even-parity eigenenergies, shape `(n_E, num_ej)`.
+/// * `even_states` - Even-parity eigenstates, shape `(num_ej, n_E, dim)`.
+/// * `odd_energies` - Odd-parity eigenenergies, shape `(n_E, num_ej)`.
+/// * `odd_states` - Odd-parity eigenstates, shape `(num_ej, n_E, dim)`.
+/// * `G` - Coupling matrix in the transmon eigenbasis, shape `(num_ej, dim, dim)`.
+///
+/// # Returns
+/// Four 2D arrays `(a_sel, t_sel, t2ph_sel, t12_sel)` of shape `(num_ej, num_f)`:
+/// - `a_sel`: annihilation-operator spectrum (cavity transmission proxy).
+/// - `t_sel`: single-photon transmission spectrum.
+/// - `t2ph_sel`: two-photon transmission spectrum.
+/// - `t12_sel`: sideband (1→2) transmission spectrum.
 #[pyfunction]
 fn calculate_spectra_2D(
     py: Python<'_>,
@@ -43,7 +94,7 @@ fn calculate_spectra_2D(
     let num_f = f.len();
     let num_ej = G.shape()[0];
 
-    // Calculate selection matrices
+    // Build selection matrices (real) and cast to complex for matrix products
     let M = matrix_n0_to_n1(A, N, peaks_01).mapv(|x| Complex::new(x, 0.0));
     let M2ph = matrix_2ph(A, N, peaks_2ph).mapv(|x| Complex::new(x, 0.0));
     let M12 = matrix_n1_to_n2(A, N, peaks_12).mapv(|x| Complex::new(x, 0.0));
@@ -78,6 +129,20 @@ fn calculate_spectra_2D(
      stotal_t12_selection.into_pyarray(py).to_owned().into())
 }
 
+/// Compute transmission spectra for a single set of eigenstates.
+///
+/// For each frequency in `f`, the spectrum is obtained by summing Lorentzian
+/// lineshapes centered at the transition frequencies between all pairs of
+/// even- and odd-parity eigenstates, weighted by the squared modulus of the
+/// corresponding transition matrix element.
+///
+/// # Arguments
+/// See [`calculate_spectra_2D`] for argument descriptions. Here `even_energies`,
+/// `even_states`, `odd_energies`, `odd_states`, and `G` are 1D/2D arrays
+/// corresponding to a single parameter value.
+///
+/// # Returns
+/// Four 1D arrays `(a_sel, t_sel, t2ph_sel, t12_sel)` of length `num_f`.
 #[pyfunction]
 fn calculate_spectra(
     py: Python<'_>,
@@ -102,7 +167,7 @@ fn calculate_spectra(
     let even_states = even_states.as_array();
     let odd_states = odd_states.as_array();
 
-    // Calculate selection matrices
+    // Build selection matrices
     let M = matrix_n0_to_n1(A, N, peaks_01).mapv(|x| Complex::new(x, 0.0));
     let M2ph = matrix_2ph(A, N, peaks_2ph).mapv(|x| Complex::new(x, 0.0));
     let M12 = matrix_n1_to_n2(A, N, peaks_12).mapv(|x| Complex::new(x, 0.0));
@@ -129,6 +194,15 @@ fn calculate_spectra(
     row_t12.into_pyarray(py).to_owned().into())
 }
 
+/// Compute 1-, 2-, 3-, and 4-photon transmission spectra.
+///
+/// Extends [`calculate_spectra`] to higher-order multiphoton transitions.
+/// The n-photon coupling matrix is built as the Hadamard product of the
+/// n-photon selection matrix with G^n (n-th matrix power of G).
+///
+/// # Returns
+/// Four 1D arrays `(t01, t2ph, t3ph, t4ph)` of length `num_f`, corresponding
+/// to 1-, 2-, 3-, and 4-photon transmission respectively.
 #[pyfunction]
 fn calculate_multiphoton_spectra(
     py: Python<'_>,
@@ -150,7 +224,7 @@ fn calculate_multiphoton_spectra(
     let even_states = even_states.as_array();
     let odd_states = odd_states.as_array();
 
-    // Calculate selection matrices
+    // Build selection matrices for each photon order
     let M = matrix_n0_to_n1(A, N, 1).mapv(|x| Complex::new(x, 0.0));
     let M2ph = matrix_nph(A, N, 2).mapv(|x| Complex::new(x, 0.0));
     let M3ph = matrix_nph(A, N, 3).mapv(|x| Complex::new(x, 0.0));
@@ -178,6 +252,22 @@ fn calculate_multiphoton_spectra(
     row_t4ph.into_pyarray(py).to_owned().into())
 }
 
+// =============================================================================
+// Core spectrum computation (internal)
+// =============================================================================
+
+/// Inner routine that computes the four spectral channels for a single parameter point.
+///
+/// For each pair of even (`j`) and odd (`k`) eigenstates, four transition matrix
+/// elements are computed:
+/// - `Aeo[j,k]` = ⟨even_j | (M ⊙ a) | odd_k⟩  (annihilation operator channel)
+/// - `Teo[j,k]` = ⟨even_j | (M ⊙ G) | odd_k⟩  (single-photon transmission)
+/// - `T2ph[j,k]` = ⟨even_j | (M2ph ⊙ G²) | even_k⟩  (two-photon, even→even)
+/// - `T12[j,k]`  = ⟨even_j | (M12 ⊙ G) | odd_k⟩   (sideband 1→2)
+///
+/// The spectrum at each frequency is then a sum of Lorentzians:
+/// `S(f) = Σ_{j,k} |T[j,k]|² * L(f - ΔE_{jk})`
+/// where `L` is a Lorentzian of width `w`.
 fn calculate_spectra_rust<'a>(
     M: ArrayView2<'a, Complex<f64>>,
     M2ph: ArrayView2<'a, Complex<f64>>,
@@ -194,11 +284,13 @@ fn calculate_spectra_rust<'a>(
     A:ArrayView2<'a, Complex<f64>>
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
 
+    // Build effective coupling matrices: element-wise product of selection mask and operator
     let Ma = hadamard_product(&M, &A);
     let Mt = hadamard_product(&M, &G);
     let M2ph = hadamard_product(&M2ph, &G.dot(&G));
     let M12 = hadamard_product(&M12, &G);
     
+    // Pre-compute all transition matrix elements between eigenstates
     let n_E = even_energies.len();
     let mut Aeo = Array2::<Complex<f64>>::zeros((n_E, n_E));
     let mut Teo = Array2::<Complex<f64>>::zeros((n_E, n_E));
@@ -206,15 +298,14 @@ fn calculate_spectra_rust<'a>(
     let mut T12 = Array2::<Complex<f64>>::zeros((n_E, n_E));
     for j in 0..n_E {
         for k in 0..n_E {
-            // Calculate transition matrix elements
             Teo[[j,k]] = even_states.row(j).dag().dot(&Mt.dot(&odd_states.row(k)));
             Aeo[[j,k]] = even_states.row(j).dag().dot(&Ma.dot(&odd_states.row(k)));
             T2ph[[j,k]] = even_states.row(j).dag().dot(&M2ph.dot(&even_states.row(k)));
             T12[[j,k]] = even_states.row(j).dag().dot(&M12.dot(&odd_states.row(k)));
         }
     }
-    // let (Teo, Aeo, T2ph, T12) = compute_all_transition_elements(&even_states, &odd_states, &Ma, &Mt, &M2ph, &M12);
 
+    // Sum Lorentzian contributions at each frequency point (parallelized over f)
     let (row_a, row_t, row_t2ph, row_t12): (Vec<_>, Vec<_>, Vec<_>, Vec<_>) =
     f.par_iter().map(|freq| {
         let mut a = 0.0;
@@ -229,6 +320,7 @@ fn calculate_spectra_rust<'a>(
                 let pop_sum = even_state_population[j] + even_state_population[k];
                 let pop_mix = even_state_population[j] + odd_state_population[k];
 
+                // Lorentzian L(f) = (w/2π) / ((w/2)² + (f - f0)²)
                 let lortz = w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - odd).abs()).powi(2));
                 let lortz2ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (2.0 * freq - (evenj - evenk)).powi(2));
                 a += Aeo[[j,k]].norm_sqr() * lortz;
@@ -242,6 +334,11 @@ fn calculate_spectra_rust<'a>(
     (row_a, row_t, row_t2ph, row_t12)
 }
 
+/// Inner routine for multiphoton spectra computation.
+///
+/// Analogous to [`calculate_spectra_rust`] but computes up to 4-photon processes.
+/// The n-photon Lorentzian is centered at `n*f = |E_j - E_k|`, and the coupling
+/// matrix is built from G^n (n successive applications of G).
 fn calculate_multiphoton_spectra_rust<'a>(
     M: ArrayView2<'a, Complex<f64>>,
     M2ph: ArrayView2<'a, Complex<f64>>,
@@ -257,6 +354,7 @@ fn calculate_multiphoton_spectra_rust<'a>(
     odd_states: ArrayView2<'a, Complex<f64>>,
     G: ArrayView2<'a, Complex<f64>>,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    // n-photon coupling: Hadamard product of selection mask with G^n
     let Mt = hadamard_product(&M, &G);
     let M2ph = hadamard_product(&M2ph, &G.dot(&G));
     let M3ph = hadamard_product(&M3ph, &G.dot(&G.dot(&G)));
@@ -269,7 +367,6 @@ fn calculate_multiphoton_spectra_rust<'a>(
     let mut T4ph = Array2::<Complex<f64>>::zeros((n_E, n_E));
     for j in 0..n_E {
         for k in 0..n_E {
-            // Calculate transition matrix elements
             Teo[[j,k]] = even_states.row(j).dag().dot(&Mt.dot(&odd_states.row(k)));
             T2ph[[j,k]] = even_states.row(j).dag().dot(&M2ph.dot(&even_states.row(k)));
             T3ph[[j,k]] = even_states.row(j).dag().dot(&M3ph.dot(&odd_states.row(k)));
@@ -306,6 +403,14 @@ fn calculate_multiphoton_spectra_rust<'a>(
     (row_t01, row_t2ph, row_t3ph, row_t4ph)
 }
 
+// =============================================================================
+// Selection matrices
+// =============================================================================
+
+/// Build a selection matrix for single-photon (0→1) transitions.
+///
+/// Places ones at positions `(i*N, i*N + 1)` and their transposes for each
+/// of the first `n_peaks` photon-number sectors.
 fn matrix_n0_to_n1(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     let size = A * N;
     let mut m = Array2::<f64>::zeros((size, size));
@@ -313,14 +418,16 @@ fn matrix_n0_to_n1(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     for i in 0..n_peaks {
         let ground = i * N;
         let excited = ground + 1;
-
-        // Set symmetric entries
         m[[ground, excited]] = 1.0;
         m[[excited, ground]] = 1.0;
     }
     m
 }
 
+/// Build a selection matrix for two-photon transitions (0→2 in photon number).
+///
+/// Places ones at `(i*N, i*N + 2)` and transposes for each of the first
+/// `n_peaks` photon-number sectors.
 fn matrix_2ph(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     let size = A * N;
     let mut m = Array2::<f64>::zeros((size, size));
@@ -328,27 +435,28 @@ fn matrix_2ph(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     for i in 0..n_peaks {
         let ground = i * N;
         let excited = ground + 2;
-
-        // Set symmetric entries
         m[[ground, excited]] = 1.0;
         m[[excited, ground]] = 1.0;
     }
     m
 }
 
+/// Build a selection matrix for an n-photon transition starting from the vacuum.
+///
+/// Places a single one at `(0, n)` and its transpose, selecting only the
+/// `|0⟩ → |n⟩` photon-number transition from the ground state.
 fn matrix_nph(A: usize, N: usize, n: usize) -> Array2<f64> {
     let size = A * N;
     let mut m = Array2::<f64>::zeros((size, size));
-
-    let ground = 0;
-    let excited = n;
-
-    // Set symmetric entries
-    m[[ground, excited]] = 1.0;
-    m[[excited, ground]] = 1.0;
+    m[[0, n]] = 1.0;
+    m[[n, 0]] = 1.0;
     m
 }
 
+/// Build a selection matrix for sideband (1→2) transitions.
+///
+/// Places ones at `(i*N + 1, i*N + 2)` and transposes for each of the
+/// first `n_peaks` photon-number sectors.
 fn matrix_n1_to_n2(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     let size = A * N;
     let mut m = Array2::<f64>::zeros((size, size));
@@ -356,15 +464,17 @@ fn matrix_n1_to_n2(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     for i in 0..n_peaks {
         let ground = i * N + 1;
         let excited = ground + 1;
-
-        // Set symmetric entries
         m[[ground, excited]] = 1.0;
         m[[excited, ground]] = 1.0;
     }
     m
 }
 
-/// Element-wise product of two matrices
+// =============================================================================
+// Linear algebra utilities
+// =============================================================================
+
+/// Element-wise (Hadamard) product of two matrices of equal shape.
 fn hadamard_product<T, A, B>(a: &ArrayBase<A, Ix2>, b: &ArrayBase<B, Ix2>) -> Array2<T>
 where
     T: Copy + Mul<Output = T> + num_traits::identities::Zero,
@@ -380,12 +490,12 @@ where
     result
 }
 
-// For 1D quantum states (e.g. eigenstates)
+/// Conjugate transpose (†) for 1D quantum state vectors.
 pub trait QuantumStateOps {
     fn dag(&self) -> Array1<Complex<f64>>;
 }
 
-// For 2D quantum operators (e.g. matrices)
+/// Conjugate transpose (†) for 2D quantum operators.
 pub trait QuantumOperatorOps {
     fn dag(&self) -> Array2<Complex<f64>>;
 }
@@ -408,6 +518,9 @@ where
     }
 }
 
+/// Bosonic annihilation operator in Fock space of dimension `dim`.
+///
+/// Returns the matrix with entries `a[i-1, i] = sqrt(i)` for i in 1..dim.
 fn destroy(dim: usize) -> Array2<Complex<f64>> {
     let mut a = Array2::<Complex<f64>>::zeros((dim, dim));
     for i in 1..dim {
@@ -416,10 +529,12 @@ fn destroy(dim: usize) -> Array2<Complex<f64>> {
     a
 }
 
+/// Identity matrix of dimension `dim` with complex entries.
 fn identity(dim: usize) -> Array2<Complex<f64>> {
     Array2::from_diag(&Array1::from_elem(dim, Complex::new(1.0, 0.0)))
 }
 
+/// Kronecker (tensor) product of two complex matrices.
 fn kronecker(
     a: &Array2<Complex<f64>>,
     b: &Array2<Complex<f64>>,
@@ -443,13 +558,22 @@ fn kronecker(
     result
 }
 
+/// Build the cavity annihilation operator in the full tensor-product Hilbert space.
+///
+/// Returns `a ⊗ I_N`, where `a` is the bosonic annihilation operator on the
+/// resonator space of dimension `A`, and `I_N` is the identity on the transmon
+/// space of dimension `N`.
 fn build_annihilation_tensor_operator(A: usize, N: usize) -> Array2<Complex<f64>> {
     let a = destroy(A);
     let id = identity(N);
     kronecker(&a, &id)
 }
 
-/// A Python module implemented in Rust.
+// =============================================================================
+// PyO3 module definition
+// =============================================================================
+
+/// Python module exposing the spectra calculation functions.
 #[pymodule]
 fn spectra_calculation(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(calculate_spectra_2D, m)?)?;
