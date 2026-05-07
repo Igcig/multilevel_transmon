@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py38", "num-complex"] }
-physical_constants = "0.5.0"
 ndarray = "0.16"
 numpy = "0.24"
 num-complex = "0.4"

@@ -6,7 +6,6 @@ __pycache__/
 venv/
 dist/
 build/
-*.ipynb
 
 # Jupyter
 .ipynb_checkpoints/

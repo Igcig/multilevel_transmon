@@ -322,7 +322,8 @@ fn calculate_spectra_rust<'a>(
 
                 // Lorentzian L(f) = (w/2π) / ((w/2)² + (f - f0)²)
                 let lortz = w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - odd).abs()).powi(2));
-                let lortz2ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (2.0 * freq - (evenj - evenk)).powi(2));
+                let mut lortz2ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (2.0 * freq - (evenj - evenk)).powi(2));
+                lortz2ph += w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - evenk)).powi(2));
                 a += Aeo[[j,k]].norm_sqr() * lortz;
                 t += Teo[[j,k]].norm_sqr() * lortz;
                 t2ph += T2ph[[j,k]].norm_sqr() * lortz2ph * pop_sum;
@@ -389,9 +390,13 @@ fn calculate_multiphoton_spectra_rust<'a>(
                 let pop_mix = even_state_population[j] + odd_state_population[k];
 
                 let lortz = w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - odd).abs()).powi(2));
-                let lortz2ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (2.0 * freq - (evenj - evenk)).powi(2));
-                let lortz3ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (3.0 * freq - (evenj - odd).abs()).powi(2));
-                let lortz4ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (4.0 * freq - (evenj - evenk)).powi(2));
+                let mut lortz2ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (2.0 * freq - (evenj - evenk)).powi(2));
+                lortz2ph += w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - evenk)).powi(2));
+                let mut lortz3ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (3.0 * freq - (evenj - odd).abs()).powi(2));
+                lortz3ph += w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - odd).abs()).powi(2));
+                let mut lortz4ph = w / (2.0 * PI) / (w.powi(2) / 4.0 + (4.0 * freq - (evenj - evenk)).powi(2));
+                lortz4ph += w / (2.0 * PI) / (w.powi(2) / 4.0 + (2.0 * freq - (evenj - evenk)).powi(2));
+                lortz4ph += w / (2.0 * PI) / (w.powi(2) / 4.0 + (freq - (evenj - evenk)).powi(2));
                 t += Teo[[j,k]].norm_sqr() * lortz;
                 t2ph += T2ph[[j,k]].norm_sqr() * lortz2ph * pop_sum;
                 t3ph += T3ph[[j,k]].norm_sqr() * lortz3ph * pop_mix;

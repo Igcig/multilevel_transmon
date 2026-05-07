@@ -16,14 +16,17 @@ Simple package for diagonalizing a transmon or a transmon–resonator system and
 
 ```
 project-root/
-├── spectra_computation/   
-│   ├── src/
-│   ├── Cargo.toml
-│   └── pyproject.toml
-├── spectra_computation/   
-│   └── __init__.py
+├── transmon.ipynb
+├── pyproject.toml
+├── README
+├── LICENSE
+├── transmon_tools/
+│   ├── __init__.py
 │   └── transmon_tools.py
-└── pyproject.toml
+└── spectra_calculation/
+    ├── src/
+    │   └── lib.rs
+    └── Cargo.toml
 ```
 
 ## Installation
@@ -44,7 +47,7 @@ pip install -e .
 From the project root folder:
 
 ```bash
-cd spectra_computation
+cd spectra_calculation
 ```
 
 **With a virtual environment (recommended):**
@@ -60,4 +63,8 @@ pip install ./target/wheels/<nombre_del_wheel>.whl
 
 ## Development
 
-To rebuild after changes to the Rust code, re-run `maturin develop` from the `spectra_computation/` folder.
+To rebuild after changes to the Rust code, re-run `maturin develop` from the `spectra_calculation/` folder or force reinstall with
+```bash
+maturin build
+pip install --force-reinstall ./target/wheels/<nombre_del_wheel>.whl
+```
