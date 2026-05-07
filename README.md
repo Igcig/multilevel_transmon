@@ -1,4 +1,4 @@
-# Transmon-tools
+# Multilevel transmon
 
 Simple package for diagonalizing a transmon or a transmon–resonator system and for calculating transition matrix elements for:
 
@@ -15,8 +15,8 @@ Simple package for diagonalizing a transmon or a transmon–resonator system and
 ## Project Structure
 
 ```
-project-root/
-├── transmon.ipynb
+multilevel_transmon/
+├── transmon_demo.ipynb
 ├── pyproject.toml
 ├── README
 ├── LICENSE
@@ -33,7 +33,7 @@ project-root/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/tu-usuario/tu-repo.git
+git clone https://github.com/igcig/multilevel_transmon.git
 cd tu-repo
 ```
 
@@ -58,7 +58,7 @@ maturin develop
 **Without a virtual environment:**
 ```bash
 maturin build
-pip install ./target/wheels/<nombre_del_wheel>.whl
+pip install ./target/wheels/<wheel_name>.whl
 ```
 
 ## Development
@@ -66,5 +66,5 @@ pip install ./target/wheels/<nombre_del_wheel>.whl
 To rebuild after changes to the Rust code, re-run `maturin develop` from the `spectra_calculation/` folder or force reinstall with
 ```bash
 maturin build
-pip install --force-reinstall ./target/wheels/<nombre_del_wheel>.whl
+pip install --force-reinstall ./target/wheels/<wheel_name>.whl
 ```
