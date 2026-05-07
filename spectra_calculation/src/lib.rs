@@ -91,20 +91,18 @@ fn calculate_spectra_2D(
     let even_states = even_states.as_array();
     let odd_states = odd_states.as_array();
     let G = G.as_array();
+    let a = build_annihilation_tensor_operator(A, N);
     let num_f = f.len();
     let num_ej = G.shape()[0];
 
-    // Build selection matrices (real) and cast to complex for matrix products
-    let M = matrix_n0_to_n1(A, N, peaks_01).mapv(|x| Complex::new(x, 0.0));
-    let M2ph = matrix_2ph(A, N, peaks_2ph).mapv(|x| Complex::new(x, 0.0));
-    let M12 = matrix_n1_to_n2(A, N, peaks_12).mapv(|x| Complex::new(x, 0.0));
-    
     let (a_sel, t_sel, t2ph_sel, t12_sel): (Vec<_>, Vec<_>, Vec<_>, Vec<_>) =
     (0..num_ej).into_par_iter().map(|m| {
         calculate_spectra_rust(
-            M.view(),
-            M2ph.view(),
-            M12.view(),
+            A,
+            N,
+            peaks_01,
+            peaks_2ph,
+            peaks_12,
             w,
             &f,
             &even_state_population,
@@ -114,7 +112,7 @@ fn calculate_spectra_2D(
             odd_energies.index_axis(Axis(1), m),
             odd_states.index_axis(Axis(0), m),
             G.index_axis(Axis(0), m),
-            build_annihilation_tensor_operator(A, N).view()
+            (a.dag() + a.clone()).view()
         )
     }).collect::<Vec<_>>().into_iter().multiunzip();
     
@@ -164,18 +162,16 @@ fn calculate_spectra(
     let even_energies = even_energies.as_array();
     let odd_energies = odd_energies.as_array();
     let G = G.as_array();
+    let a = build_annihilation_tensor_operator(A, N);
     let even_states = even_states.as_array();
     let odd_states = odd_states.as_array();
 
-    // Build selection matrices
-    let M = matrix_n0_to_n1(A, N, peaks_01).mapv(|x| Complex::new(x, 0.0));
-    let M2ph = matrix_2ph(A, N, peaks_2ph).mapv(|x| Complex::new(x, 0.0));
-    let M12 = matrix_n1_to_n2(A, N, peaks_12).mapv(|x| Complex::new(x, 0.0));
-    
     let (row_a, row_t, row_t2ph, row_t12) = calculate_spectra_rust(
-        M.view(),
-        M2ph.view(),
-        M12.view(),
+        A,
+        N,
+        peaks_01,
+        peaks_2ph,
+        peaks_12,
         w,
         &f,
         &even_state_population,
@@ -185,7 +181,7 @@ fn calculate_spectra(
         odd_energies,
         odd_states,
         G,
-        build_annihilation_tensor_operator(A, N).view()
+        (a.dag() + a).view()
     );
     
     (row_a.into_pyarray(py).to_owned().into(),
@@ -269,9 +265,11 @@ fn calculate_multiphoton_spectra(
 /// `S(f) = Σ_{j,k} |T[j,k]|² * L(f - ΔE_{jk})`
 /// where `L` is a Lorentzian of width `w`.
 fn calculate_spectra_rust<'a>(
-    M: ArrayView2<'a, Complex<f64>>,
-    M2ph: ArrayView2<'a, Complex<f64>>,
-    M12: ArrayView2<'a, Complex<f64>>,
+    A: usize,
+    N: usize,
+    peaks_01: usize,
+    peaks_2ph: usize,
+    peaks_12: usize,
     w: f64,
     f: &'a [f64],
     even_state_population: &'a [f64],
@@ -281,11 +279,18 @@ fn calculate_spectra_rust<'a>(
     odd_energies: ArrayView1<'a, f64>,
     odd_states: ArrayView2<'a, Complex<f64>>,
     G: ArrayView2<'a, Complex<f64>>,
-    A:ArrayView2<'a, Complex<f64>>
+    V_op: ArrayView2<'a, Complex<f64>>
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
 
+    // Build selection matrices
+    let Ma = matrix_single_tone(A, N).mapv(|x| Complex::new(x, 0.0));
+    let M = matrix_n0_to_n1(A, N, peaks_01).mapv(|x| Complex::new(x, 0.0));
+    let M2ph = matrix_2ph(A, N, peaks_2ph).mapv(|x| Complex::new(x, 0.0));
+    let M12 = matrix_n1_to_n2(A, N, peaks_12).mapv(|x| Complex::new(x, 0.0));
+
     // Build effective coupling matrices: element-wise product of selection mask and operator
-    let Ma = hadamard_product(&M, &A);
+    let Ma = hadamard_product(&Ma, &V_op);
+    // let Ma = hadamard_product(&M, &A);
     let Mt = hadamard_product(&M, &G);
     let M2ph = hadamard_product(&M2ph, &G.dot(&G));
     let M12 = hadamard_product(&M12, &G);
@@ -423,6 +428,19 @@ fn matrix_n0_to_n1(A: usize, N: usize, n_peaks: usize) -> Array2<f64> {
     for i in 0..n_peaks {
         let ground = i * N;
         let excited = ground + 1;
+        m[[ground, excited]] = 1.0;
+        m[[excited, ground]] = 1.0;
+    }
+    m
+}
+
+fn matrix_single_tone(A: usize, N: usize) -> Array2<f64> {
+    let size = A * N;
+    let mut m = Array2::<f64>::zeros((size, size));
+
+    for i in [0,1] {
+        let ground = i;
+        let excited = ground + N;
         m[[ground, excited]] = 1.0;
         m[[excited, ground]] = 1.0;
     }
